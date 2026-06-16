@@ -1,0 +1,78 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# DuckDB
+*.duckdb
+*.duckdb.wal
+
+# Data files (user uploads, tidak perlu di-commit)
+data/
+
+# PyInstaller
+*.spec
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Logs
+*.log
+
+# Project documents
+数据自动化处理工具开发项目方案.pdf
+*.pdf
+
+.claude/
+.omc/
+.cursor/
+.copilot/
+.aider*
+.ai/
+.ainotes/
+.ai-memory/
+.instruct/
+.notes/
+.memory/
+.context/
+.retriever/
+.rag/
+.vectorstore/
+.embeddings/
+.chroma/
+.langchain/
+.llm/
+llm_outputs/
+.generated/
+generated/
+.prompts/
+prompts/
+*.prompt
+*.llm-output
+*.ai.md
+*.cursorrules
+.cursorrules
+.cursorignore
