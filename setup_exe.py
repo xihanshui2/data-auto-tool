@@ -45,7 +45,6 @@ cmd = [
     "--copy-metadata", "streamlit",
     # ----------------------------
 
-    "--add-data", f"mallard.py{os.pathsep}.",
     "--add-data", f"mallard_auto.py{os.pathsep}.",
     "--add-data", f"config{os.pathsep}config",
     "--add-data", f"{os.path.dirname(__import__('streamlit').__file__)}{os.pathsep}streamlit",
@@ -95,7 +94,7 @@ if result.returncode == 0:
     print("分发方式：")
     print("  1. 将整个 dist/MALLARD/ 文件夹打包为 zip")
     print("  2. 在其他机器上解压，运行 MALLARD.exe")
-    print("  3. 浏览器会自动打开 http://localhost:8501")
+    print("  3. 浏览器会自动打开 http://localhost:8502")
     print("=" * 60)
 else:
     print()
