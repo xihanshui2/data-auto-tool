@@ -9,7 +9,7 @@ import tempfile
 import os
 import json
 
-# ── Config ────────────────────────────────────────────────────────────────────
+# ── 配置 ──────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="MALLARD", page_icon="🦆", layout="wide")
 
 DATA_DIR = Path("data")
@@ -242,22 +242,22 @@ hr { border-color: #1e2a40 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── DB ────────────────────────────────────────────────────────────────────────
+# ── 数据库 ────────────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_con():
     return duckdb.connect(DB_PATH)
 
 con = get_con()
 
-# ── Cached data access ────────────────────────────────────────────────────────
+# ── 缓存的数据访问 ────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300, show_spinner=False)
 def get_table_metadata(_con, table: str) -> dict:
-    """Retrieve schema and row count WITHOUT loading data into RAM."""
-    # Get column type info from DuckDB
+    """不将数据加载到内存，仅检索表结构和行数。"""
+    # 从 DuckDB 获取列类型信息
     info = _con.execute(f"DESCRIBE \"{table}\"").fetchall()
-    
+
     num_cols, cat_cols, date_cols = [], [], []
-    
+
     for col_name, col_type, null_val, key, def_val, extra in info:
         ct = col_type.upper()
         if any(t in ct for t in ['INT', 'FLOAT', 'DOUBLE', 'DECIMAL', 'NUMERIC']):
@@ -266,10 +266,10 @@ def get_table_metadata(_con, table: str) -> dict:
             date_cols.append(col_name)
         else:
             cat_cols.append(col_name)
-            
-    # Count rows using SQL
+
+    # 使用 SQL 统计行数
     row_count = _con.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
-    
+
     return {
         "columns": [r[0] for r in info],
         "num_cols": num_cols,
@@ -280,16 +280,16 @@ def get_table_metadata(_con, table: str) -> dict:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_preview(_con, table: str, n: int = 100) -> pd.DataFrame:
-    """Fetch only the first N rows — fast even for huge tables."""
+    """只取前 N 行预览 —— 即使是大表也很快。"""
     return _con.execute(f'SELECT * FROM "{table}" LIMIT {n}').df()
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_row_count(table: str) -> int:
-    """Count rows without pulling the whole table."""
+    """不拉取整张表，仅统计行数。"""
     _con = get_con()
     return _con.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
 
-# ── Ingestion ─────────────────────────────────────────────────────────────────
+# ── 数据导入 ──────────────────────────────────────────────────────────────────
 
 SMALL_THRESHOLD = 50 * 1024 * 1024   # 50 MB
 
@@ -297,7 +297,7 @@ def _table_name(stem: str) -> str:
     return stem.replace(" ","_").replace("-","_").replace(".","_").lower()
 
 def _pandas_ingest(con, data: bytes, ext: str, table: str) -> str:
-    """Fast path: load into pandas from memory, then push to DuckDB."""
+    """快速路径：从内存加载到 pandas，再推入 DuckDB。"""
     from io import BytesIO
     buf = BytesIO(data)
     if ext == ".csv":
@@ -333,7 +333,7 @@ def _pandas_ingest(con, data: bytes, ext: str, table: str) -> str:
     return table
 
 def _duckdb_ingest(con, data: bytes, ext: str, table: str) -> str:
-    """Large-file path: write to tempfile, let DuckDB stream directly from disk."""
+    """大文件路径：写入临时文件，让 DuckDB 直接从磁盘流式读取。"""
     with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
         tmp.write(data)
         tmp_path = tmp.name
@@ -387,10 +387,10 @@ def ingest_uploaded(con, uf) -> str:
         else:
             return _duckdb_ingest(con, data, ext, table)
     except Exception as e:
-        raise RuntimeError(f"Ingest failed for {uf.name}: {e}") from e
+        raise RuntimeError(f"导入失败 {uf.name}: {e}") from e
 
 def ingest_file(con, path: Path) -> str:
-    """Ingest a file already on disk — always DuckDB native (no tempfile needed)."""
+    """导入磁盘上已有的文件 —— 始终使用 DuckDB 原生方式（无需临时文件）。"""
     table = _table_name(path.stem)
     ext   = path.suffix.lower()
     p     = str(path).replace("'", "''")
@@ -421,7 +421,7 @@ def ingest_file(con, path: Path) -> str:
     except:
         return None
 
-# ── Post-load pandas helpers ─────────────
+# ── 加载后的 pandas 辅助函数 ─────────────
 def aggressive_numeric_inference(df: pd.DataFrame, threshold: float = 0.80) -> pd.DataFrame:
     for col in df.select_dtypes("object").columns:
         cleaned = df[col].astype(str).str.replace(",", "").str.strip()
@@ -435,12 +435,12 @@ def list_tables(con):
 
 def deep_clean_native(con, table: str) -> tuple[str, dict]:
     cleaned_name = f"{table}_cleaned"
-    
+
     rows_before = con.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
-    
+
     columns = [r[0] for r in con.execute(f"DESCRIBE \"{table}\"").fetchall()]
     cols_before = len(columns)
-    
+
     report = {
         "rows_before": rows_before, "cols_before": cols_before,
         "empty_cols_removed": [], "force_cast_cols":[],
@@ -450,26 +450,26 @@ def deep_clean_native(con, table: str) -> tuple[str, dict]:
     valid_columns =[]
     for col in columns:
         non_null_count = con.execute(f'SELECT count("{col}") FROM "{table}"').fetchone()[0]
-        
+
         if non_null_count == 0:
             report["empty_cols_removed"].append(col)
         else:
             valid_columns.append(col)
 
     select_exprs =[]
-    
+
     for col in valid_columns:
         col_type = con.execute(f"SELECT typeof(\"{col}\") FROM \"{table}\" LIMIT 1").fetchone()[0]
-        
+
         if col_type == 'VARCHAR':
             cast_query = f"""
-            SELECT 
+            SELECT
                 COUNT("{col}") as total_non_null,
                 COUNT(TRY_CAST(REPLACE(REPLACE("{col}", ',', ''), ' ', '') AS DOUBLE)) as castable
             FROM "{table}"
             """
             total_not_null, castable = con.execute(cast_query).fetchone()
-            
+
             if total_not_null > 0 and (castable / total_not_null) >= 0.5:
                 select_exprs.append(f"TRY_CAST(REPLACE(REPLACE(\"{col}\", ',', ''), ' ', '') AS DOUBLE) AS \"{col}\"")
                 report["force_cast_cols"].append(col)
@@ -477,19 +477,19 @@ def deep_clean_native(con, table: str) -> tuple[str, dict]:
                 select_exprs.append(f'"{col}"')
         else:
             select_exprs.append(f'"{col}"')
-            
+
     select_clause = ",\n        ".join(select_exprs)
-    
+
     clean_query = f"""
-    CREATE OR REPLACE TABLE "{cleaned_name}" AS 
-    SELECT DISTINCT 
+    CREATE OR REPLACE TABLE "{cleaned_name}" AS
+    SELECT DISTINCT
         {select_clause}
     FROM "{table}"
     """
-    con.execute(clean_query) 
-    
+    con.execute(clean_query)
+
     rows_after = con.execute(f'SELECT COUNT(*) FROM "{cleaned_name}"').fetchone()[0]
-    
+
     report["rows_after"] = rows_after
     report["cols_after"] = len(valid_columns)
     report["duplicates_removed"] = rows_before - rows_after
@@ -498,8 +498,8 @@ def deep_clean_native(con, table: str) -> tuple[str, dict]:
 
 def wide_to_long(con, table: str) -> tuple[str, bool]:
     """
-    Detect wide-format tables (date headers as columns) and melt to long format.
-    Returns: (result_table_name, was_melted)
+    检测宽格式表（日期作为列标题），并将其 melt 为长格式。
+    返回：(结果表名, 是否执行了 melt)
     """
     import re
     df = con.execute(f'SELECT * FROM "{table}"').df()
@@ -540,45 +540,45 @@ def wide_to_long(con, table: str) -> tuple[str, bool]:
     return long_name, True
 
 def smart_summary_native(con, table_name: str, meta: dict) -> str:
-    """Analyze dataset statistics entirely within the database engine."""
+    """完全在数据库引擎内分析数据集统计信息。"""
     rows = meta["row_count"]
     cols = len(meta["columns"])
-    
-    label = "✨ Cleaned dataset" if table_name.endswith("_cleaned") else "Dataset"
-    lines = [f"{label} <b>{table_name}</b> has <b>{rows:,} rows</b> and <b>{cols} columns</b>."]
+
+    label = "✨ 清洗后的数据集" if table_name.endswith("_cleaned") else "数据集"
+    lines = [f"{label} <b>{table_name}</b> 包含 <b>{rows:,} 行</b>和 <b>{cols} 列</b>。"]
 
     parts = []
-    if meta["num_cols"]:  parts.append(f"{len(meta['num_cols'])} numeric")
-    if meta["cat_cols"]:  parts.append(f"{len(meta['cat_cols'])} categorical")
-    if meta["date_cols"]: parts.append(f"{len(meta['date_cols'])} datetime")
-    if parts: lines.append(f"Column types: {', '.join(parts)}.")
+    if meta["num_cols"]:  parts.append(f"{len(meta['num_cols'])} 个数值列")
+    if meta["cat_cols"]:  parts.append(f"{len(meta['cat_cols'])} 个分类列")
+    if meta["date_cols"]: parts.append(f"{len(meta['date_cols'])} 个日期时间列")
+    if parts: lines.append(f"列类型：{', '.join(parts)}。")
 
     if rows > 0:
         null_selects = [f'SUM(CASE WHEN "{c}" IS NULL THEN 1 ELSE 0 END) AS "{c}"' for c in meta["columns"]]
         null_query = f'SELECT {",".join(null_selects)} FROM "{table_name}"'
         null_counts = con.execute(null_query).fetchone()
-        
+
         dirty = []
         for col_name, null_count in zip(meta["columns"], null_counts):
             if null_count > 0:
                 dirty.append((col_name, round(null_count / rows * 100, 1)))
-        
+
         dirty = sorted(dirty, key=lambda x: x[1], reverse=True)
-        
+
         if not dirty:
-            lines.append("✅ <b>No missing values</b> — this dataset is clean.")
+            lines.append("✅ <b>没有缺失值</b> —— 该数据集很干净。")
         else:
             alerts = [f"<b>{c}</b> ({v}%)" for c, v in dirty[:3]]
-            lines.append(f"⚠️ <b>Dirty data detected</b> in: {', '.join(alerts)}.")
+            lines.append(f"⚠️ <b>检测到脏数据</b>，位于：{', '.join(alerts)}。")
 
     return " ".join(lines)
 
-# ── Export helpers ────────────────────────────────────────────────────────────
+# ── 导出辅助函数 ────────────────────────────────────────────────────────────
 def export_table(con, table: str, fmt: str) -> bytes:
-    """Export data directly from the DuckDB engine to disk (except Excel)."""
+    """将数据直接从 DuckDB 引擎导出到磁盘（Excel 除外）。"""
     import tempfile
     import os
-    
+
     if fmt == "Excel":
         buf = BytesIO()
         df_temp = con.execute(f'SELECT * FROM "{table}"').df()
@@ -588,10 +588,10 @@ def export_table(con, table: str, fmt: str) -> bytes:
 
     ext_map = {"CSV": ".csv", "Parquet": ".parquet", "JSON": ".json"}
     ext = ext_map[fmt]
-    
+
     with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
         tmp_path = tmp.name
-        
+
     try:
         p = tmp_path.replace("'", "''")
         if fmt == "CSV":
@@ -600,7 +600,7 @@ def export_table(con, table: str, fmt: str) -> bytes:
             con.execute(f"COPY \"{table}\" TO '{p}' (FORMAT PARQUET)")
         elif fmt == "JSON":
             con.execute(f"COPY \"{table}\" TO '{p}' (FORMAT JSON, ARRAY TRUE)")
-            
+
         with open(tmp_path, "rb") as f:
             data = f.read()
         return data
@@ -608,27 +608,27 @@ def export_table(con, table: str, fmt: str) -> bytes:
         try: os.unlink(tmp_path)
         except: pass
 
-# ── Chart helpers (Native SQL Pushdown) ─────────────────────────────────────────
+# ── 图表辅助函数（原生 SQL 下推）─────────────────────────────────────────────
 def get_recommended_charts_native(meta):
-    """Providing chart recommendations based on metadata, without pulling data."""
+    """基于元数据提供图表推荐，无需拉取数据。"""
     recs =[]
     num_cols  = meta["num_cols"]
     cat_cols  = meta["cat_cols"]
     date_cols = meta["date_cols"]
-    
+
     if date_cols and num_cols:
         recs.append({"type":"line","x":date_cols[0],"y":num_cols[0],
                      "color": cat_cols[0] if cat_cols else None,
-                     "label":f"📈 Trend of {num_cols[0]} over time"})
+                     "label":f"📈 {num_cols[0]} 的时间趋势"})
     if num_cols:
         recs.append({"type":"histogram","col":num_cols[0],
-                     "label":f"📊 Distribution of {num_cols[0]}"})
+                     "label":f"📊 {num_cols[0]} 的分布"})
     if cat_cols and num_cols and not date_cols:
         recs.append({"type":"bar","x":cat_cols[0],"y":num_cols[0],
-                     "label":f"🏷️ Avg {num_cols[0]} by {cat_cols[0]}"})
+                     "label":f"🏷️ 按 {cat_cols[0]} 平均的 {num_cols[0]}"})
     if len(num_cols) >= 2:
         recs.append({"type":"scatter","x":num_cols[0],"y":num_cols[1],
-                     "label":f"🔵 {num_cols[0]} vs {num_cols[1]}"})
+                     "label":f"🔵 {num_cols[0]} 与 {num_cols[1]}"})
     return recs[:2]
 
 PLOT_LAYOUT = dict(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#0d1828", font_family="Sora")
@@ -639,65 +639,65 @@ WELCOME_HTML = """
         <div class="duck-glow"></div>
         <div class="welcome-duck">🦆</div>
     </div>
-    <div class="welcome-title">Welcome to MALLARD</div>
-    <div class="welcome-sub">Zero-config · 100% Local · No Cloud · No Setup</div>
+    <div class="welcome-title">欢迎使用 MALLARD</div>
+    <div class="welcome-sub">零配置 · 100% 本地 · 无需云端 · 无需安装</div>
     <div class="steps-wrap">
         <div class="step-card">
             <div class="step-icon">📂</div>
-            <div class="step-num">Step 01</div>
-            <div class="step-title">Upload Data</div>
-            <div class="step-desc">Drag & drop CSV, Excel, Parquet, or JSON files into the sidebar.</div>
+            <div class="step-num">步骤 01</div>
+            <div class="step-title">上传数据</div>
+            <div class="step-desc">将 CSV、Excel、Parquet 或 JSON 文件拖入侧边栏。</div>
         </div>
         <div class="step-card">
             <div class="step-icon">🧹</div>
-            <div class="step-num">Step 02</div>
-            <div class="step-title">Clean & Repair</div>
-            <div class="step-desc">Enable Deep Clean to fix data types, remove duplicates, and heal dirty columns.</div>
+            <div class="step-num">步骤 02</div>
+            <div class="step-title">清洗修复</div>
+            <div class="step-desc">启用深度清洗，修复数据类型、删除重复项、修复脏列。</div>
         </div>
         <div class="step-card">
             <div class="step-icon">📊</div>
-            <div class="step-num">Step 03</div>
-            <div class="step-title">Analyze</div>
-            <div class="step-desc">Explore auto charts, write custom SQL, and read instant Smart Summaries.</div>
+            <div class="step-num">步骤 03</div>
+            <div class="step-title">分析</div>
+            <div class="step-desc">探索自动推荐图表、编写自定义 SQL、查看智能摘要。</div>
         </div>
         <div class="step-card">
             <div class="step-icon">💾</div>
-            <div class="step-num">Step 04</div>
-            <div class="step-title">Export</div>
-            <div class="step-desc">Download cleaned data to CSV, Excel, Parquet, or JSON — ready to use anywhere.</div>
+            <div class="step-num">步骤 04</div>
+            <div class="step-title">导出</div>
+            <div class="step-desc">将清洗后的数据下载为 CSV、Excel、Parquet 或 JSON，随处可用。</div>
         </div>
     </div>
 </div>
 """
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
+# 侧边栏
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown("## 🦆 MALLARD")
-    st.caption("Local Data Warehouse · Data Healer Edition")
+    st.caption("本地数据仓库 · 数据修复版")
     st.divider()
 
-    st.markdown("### 📂 Upload Data")
-    uploaded = st.file_uploader("Drag & drop your file here",
+    st.markdown("### 📂 上传数据")
+    uploaded = st.file_uploader("将文件拖放到此处",
                                 type=["csv","xlsx","xls","parquet","json"])
     if uploaded:
-        with st.spinner(f"Loading {uploaded.name}..."):
+        with st.spinner(f"正在加载 {uploaded.name}..."):
             try:
                 t = ingest_uploaded(con, uploaded)
                 if t:
-                    st.cache_data.clear()   
-                    st.success(f"✅ {t} loaded!")
+                    st.cache_data.clear()
+                    st.success(f"✅ {t} 已加载！")
                 else:
-                    st.error("Unsupported file format.")
+                    st.error("不支持的文件格式。")
             except Exception as e:
-                st.error(f"❌ Failed: {e}")
+                st.error(f"❌ 加载失败：{e}")
 
     if DATA_DIR.exists():
         files =[f for f in DATA_DIR.iterdir()
                  if f.suffix.lower() in {".csv",".xlsx",".xls",".parquet",".json"}]
         if files:
-            with st.spinner("Scanning data/ folder..."):
+            with st.spinner("正在扫描 data/ 文件夹..."):
                 for f in files: ingest_file(con, f)
 
     st.divider()
@@ -706,21 +706,21 @@ with st.sidebar:
     n_tables = len(tables)
 
     if not tables:
-        st.info("No data yet. Upload a file to get started.")
+        st.info("还没有数据。上传一个文件开始吧。")
         st.markdown(f"""<div class="sidebar-footer">
-        DATABASE &nbsp;mallard.duckdb<br>
-        CONNECTION &nbsp;<span class="dot">● ACTIVE</span><br>
-        TABLES &nbsp;0
+        数据库 &nbsp;mallard.duckdb<br>
+        连接 &nbsp;<span class="dot">● 活跃</span><br>
+        表 &nbsp;0
         </div>""", unsafe_allow_html=True)
 
     else:
-        st.markdown("### 🗂️ Select Table")
+        st.markdown("### 🗂️ 选择表")
         selected = st.selectbox("", tables, label_visibility="collapsed")
 
         if selected.endswith("_cleaned"):
-            st.markdown('<span class="badge-cleaned">✨ CLEANED</span>', unsafe_allow_html=True)
+            st.markdown('<span class="badge-cleaned">✨ 已清洗</span>', unsafe_allow_html=True)
         else:
-            st.markdown('<span class="badge-raw">📄 RAW</span>', unsafe_allow_html=True)
+            st.markdown('<span class="badge-raw">📄 原始</span>', unsafe_allow_html=True)
 
         st.divider()
 
@@ -729,10 +729,10 @@ with st.sidebar:
         cat_cols  = meta["cat_cols"]
         date_cols = meta["date_cols"]
 
-        # ── Export ───────────────────────────────
-        st.markdown("### 💾 Export Data")
-        export_fmt = st.radio("Format:", ["CSV","Excel","Parquet","JSON"], horizontal=True)
-        
+        # ── 导出 ───────────────────────────────
+        st.markdown("### 💾 导出数据")
+        export_fmt = st.radio("格式：", ["CSV","Excel","Parquet","JSON"], horizontal=True)
+
         file_ext = {"CSV":"csv", "Excel":"xlsx", "Parquet":"parquet", "JSON":"json"}[export_fmt]
         mime_types = {
             "CSV": "text/csv",
@@ -740,73 +740,73 @@ with st.sidebar:
             "Parquet": "application/octet-stream",
             "JSON": "application/json"
         }
-        
+
         if st.download_button(
-            label=f"⬇ Download {export_fmt}",
+            label=f"⬇ 下载 {export_fmt}",
             data=export_table(con, selected, export_fmt),
             file_name=f"{selected}.{file_ext}",
             mime=mime_types[export_fmt]
         ):
             pass
 
-        st.markdown("### 🧹 Data Healer")
-        do_clean = st.toggle("Deep Clean & Repair Data", value=False)
+        st.markdown("### 🧹 数据修复")
+        do_clean = st.toggle("深度清洗与修复", value=False)
         if do_clean:
             cleaned_name = f"{selected}_cleaned"
             if cleaned_name in list_tables(con):
-                st.info(f"`{cleaned_name}` already exists. Select it from the dropdown.")
+                st.info(f"`{cleaned_name}` 已存在，请从下拉框中选择它。")
             else:
-                if st.button("▶ Run Cleaning"):
-                    with st.spinner("Cleaning data..."):
+                if st.button("▶ 运行清洗"):
+                    with st.spinner("正在清洗数据..."):
                         result_table, report = deep_clean_native(con, selected)
-                    st.cache_data.clear()   
+                    st.cache_data.clear()
                     st.session_state["last_clean_report"] = report
                     st.session_state["last_clean_table"]  = result_table
-                    st.success(f"✅ `{result_table}` created.")
+                    st.success(f"✅ `{result_table}` 已创建。")
                     st.rerun()
-        
-        st.markdown("#### 🔄 Wide → Long Converter")
-        if st.button("▶ Convert Wide to Long"):
+
+        st.markdown("#### 🔄 宽表转长表")
+        if st.button("▶ 转换为长格式"):
             long_name, success = wide_to_long(con, selected)
             if success:
                 st.cache_data.clear()
-                st.success(f"✅ `{long_name}` created — select it from the dropdown!")
+                st.success(f"✅ `{long_name}` 已创建 —— 从下拉框中选择它！")
                 st.rerun()
             else:
-                st.warning("No wide format detected.")
+                st.warning("未检测到宽格式。")
 
         st.divider()
 
-        # ── Chart controls ─────────────────────────────────────────────────────
-        st.markdown("### 📊 Chart Explorer")
-        chart_type = st.selectbox("Chart Type",[
-            "— Auto Recommend —",
-            "Histogram","Bar (Average)","Scatter","Line"
+        # ── 图表控制 ─────────────────────────────────────────────────────
+        st.markdown("### 📊 图表探索")
+        chart_type = st.selectbox("图表类型",[
+            "— 自动推荐 —",
+            "直方图","柱状图（平均值）","散点图","折线图"
         ], key="chart_type_select")
 
         chart_config = {}
-        
-        if chart_type == "Histogram":
-            chart_config["col"] = st.selectbox("Column", num_cols, key="hist_col") if num_cols else None
-        elif chart_type == "Bar (Average)":
-            chart_config["x"]     = st.selectbox("Category (X)", cat_cols, key="bar_x") if cat_cols else None
-            chart_config["y"]     = st.selectbox("Value (Y)", num_cols, key="bar_y") if num_cols else None
-            chart_config["top_n"] = st.slider("Top N", 5, 30, 15, key="bar_topn")
-        elif chart_type == "Scatter":
-            chart_config["x"]     = st.selectbox("Column X", num_cols, key="scat_x") if num_cols else None
-            chart_config["y"]     = st.selectbox("Column Y", num_cols, index=min(1,len(num_cols)-1), key="scat_y") if len(num_cols)>1 else None
-            chart_config["color"] = st.selectbox("Color by", ["—"]+cat_cols, key="scat_color")
-        elif chart_type == "Line":
+
+        if chart_type == "直方图":
+            chart_config["col"] = st.selectbox("列", num_cols, key="hist_col") if num_cols else None
+        elif chart_type == "柱状图（平均值）":
+            chart_config["x"]     = st.selectbox("分类（X）", cat_cols, key="bar_x") if cat_cols else None
+            chart_config["y"]     = st.selectbox("数值（Y）", num_cols, key="bar_y") if num_cols else None
+            chart_config["top_n"] = st.slider("显示前 N 项", 5, 30, 15, key="bar_topn")
+        elif chart_type == "散点图":
+            chart_config["x"]     = st.selectbox("X 列", num_cols, key="scat_x") if num_cols else None
+            chart_config["y"]     = st.selectbox("Y 列", num_cols, index=min(1,len(num_cols)-1), key="scat_y") if len(num_cols)>1 else None
+            chart_config["color"] = st.selectbox("按颜色分类", ["—"]+cat_cols, key="scat_color")
+        elif chart_type == "折线图":
             all_x = date_cols + num_cols + cat_cols
-            chart_config["x"]     = st.selectbox("Column X", all_x, key="line_x") if all_x else None
-            chart_config["y"]     = st.selectbox("Column Y", num_cols, key="line_y") if num_cols else None
-            chart_config["color"] = st.selectbox("Color by", ["—"]+cat_cols, key="line_color")
+            chart_config["x"]     = st.selectbox("X 列", all_x, key="line_x") if all_x else None
+            chart_config["y"]     = st.selectbox("Y 列", num_cols, key="line_y") if num_cols else None
+            chart_config["color"] = st.selectbox("按颜色分类", ["—"]+cat_cols, key="line_color")
 
-        st.markdown("#### ⚙️ Chart Display")
-        chart_height = st.slider("Chart Height (px)", 250, 900, 420, step=10, key="chart_height")
-        chart_align  = st.radio("Position", ["Full Width", "Center"], horizontal=True, key="chart_align")
+        st.markdown("#### ⚙️ 图表显示")
+        chart_height = st.slider("图表高度（px）", 250, 900, 420, step=10, key="chart_height")
+        chart_align  = st.radio("位置", ["全宽", "居中"], horizontal=True, key="chart_align")
 
-        if st.button("🔄 Reset Chart Settings"):
+        if st.button("🔄 重置图表设置"):
             for k in list(st.session_state.keys()):
                 if k.startswith(("chart_","hist_","bar_","scat_","line_")):
                     del st.session_state[k]
@@ -814,100 +814,100 @@ with st.sidebar:
 
         st.divider()
 
-        # ── Delete table ───────────────────────────────────────────────────────
-        st.markdown("### 🗑️ Delete Table")
-        tabel_hapus = st.selectbox("Select table:", tables, key="del_select")
-        if st.button("🗑 Delete This Table"):
-            con.execute(f'DROP TABLE IF EXISTS "{tabel_hapus}"')
+        # ── 删除表 ───────────────────────────────────────────────────────
+        st.markdown("### 🗑️ 删除表")
+        table_to_delete = st.selectbox("选择要删除的表：", tables, key="del_select")
+        if st.button("🗑 删除该表"):
+            con.execute(f'DROP TABLE IF EXISTS "{table_to_delete}"')
             st.cache_data.clear()
-            if st.session_state.get("last_clean_table","").startswith(tabel_hapus.replace("_cleaned","")):
+            if st.session_state.get("last_clean_table","").startswith(table_to_delete.replace("_cleaned","")):
                 st.session_state.pop("last_clean_report", None)
                 st.session_state.pop("last_clean_table", None)
-            st.success(f"✅ Table `{tabel_hapus}` deleted.")
+            st.success(f"✅ 表 `{table_to_delete}` 已删除。")
             st.rerun()
 
         st.markdown(f"""<div class="sidebar-footer">
-        DATABASE &nbsp;mallard.duckdb<br>
-        CONNECTION &nbsp;<span class="dot">● ACTIVE</span><br>
-        TABLES &nbsp;{n_tables}
+        数据库 &nbsp;mallard.duckdb<br>
+        连接 &nbsp;<span class="dot">● 活跃</span><br>
+        表 &nbsp;{n_tables}
         </div>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MAIN AREA
+# 主区域
 # ══════════════════════════════════════════════════════════════════════════════
 if not tables:
     st.markdown(WELCOME_HTML, unsafe_allow_html=True)
     st.stop()
 
-# ── Header ────────────────────────────────────────────────────────────────────
-badge = '<span class="badge-cleaned">✨ CLEANED</span>' if selected.endswith("_cleaned") \
-        else '<span class="badge-raw">📄 RAW</span>'
+# ── 标题 ────────────────────────────────────────────────────────────────────
+badge = '<span class="badge-cleaned">✨ 已清洗</span>' if selected.endswith("_cleaned") \
+        else '<span class="badge-raw">📄 原始</span>'
 st.markdown(f"# {selected.replace('_',' ').title()} &nbsp;{badge}", unsafe_allow_html=True)
 
-# ── Cleaning report ───────────────────────────────────────────────────────────
+# ── 清洗报告 ───────────────────────────────────────────────────────────
 if ("last_clean_report" in st.session_state and
         st.session_state.get("last_clean_table","").replace("_cleaned","") == selected.replace("_cleaned","")):
     r = st.session_state["last_clean_report"]
 
     col_rows_parts = []
     for c in r["force_cast_cols"]:
-        col_rows_parts.append(f"<tr><td>{c}</td><td>Force-cast → NUMERIC</td><td>✅ Healthy</td></tr>")
+        col_rows_parts.append(f"<tr><td>{c}</td><td>强制转换为 NUMERIC</td><td>✅ 健康</td></tr>")
     for c in r["inferred_cols"]:
-        col_rows_parts.append(f"<tr><td>{c}</td><td>Inferred → NUMERIC</td><td>✅ Healthy</td></tr>")
+        col_rows_parts.append(f"<tr><td>{c}</td><td>推断为 NUMERIC</td><td>✅ 健康</td></tr>")
     for c in r["empty_cols_removed"]:
-        col_rows_parts.append(f"<tr><td>{c}</td><td>100% empty → removed</td><td>🗑️ Removed</td></tr>")
+        col_rows_parts.append(f"<tr><td>{c}</td><td>100% 为空 → 已移除</td><td>🗑️ 已移除</td></tr>")
 
-    col_table_html = "<table><tr><th>Column</th><th>Action</th><th>Status</th></tr>" + "".join(col_rows_parts) + "</table>" if col_rows_parts else ""
+    col_table_html = "<table><tr><th>列</th><th>操作</th><th>状态</th></tr>" + "".join(col_rows_parts) + "</table>" if col_rows_parts else ""
 
     clean_report_html = (
         '<div class="clean-box">'
-        "✅ <b>Deep Clean complete.</b><br>"
-        f"🗑️ Duplicates removed: <b>{r['duplicates_removed']:,} rows</b> &nbsp;|&nbsp;"
-        f"📭 Empty columns removed: <b>{len(r['empty_cols_removed'])}</b><br>"
-        f"📊 <b>{r['rows_before']:,}</b> → <b>{r['rows_after']:,} rows</b> &nbsp;|&nbsp;"
-        f"<b>{r['cols_before']}</b> → <b>{r['cols_after']} columns</b>"
+        "✅ <b>深度清洗完成。</b><br>"
+        f"🗑️ 删除重复行：<b>{r['duplicates_removed']:,} 行</b> &nbsp;|&nbsp;"
+        f"📭 删除空列：<b>{len(r['empty_cols_removed'])}</b><br>"
+        f"📊 <b>{r['rows_before']:,}</b> → <b>{r['rows_after']:,} 行</b> &nbsp;|&nbsp;"
+        f"<b>{r['cols_before']}</b> → <b>{r['cols_after']} 列</b>"
         + col_table_html
         + "</div>"
     )
     st.markdown(clean_report_html, unsafe_allow_html=True)
 
-# ── Metrics ───────────────────────────────────────────────────────────────────
+# ── 指标 ───────────────────────────────────────────────────────────────────
 c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Rows",        f"{meta['row_count']:,}")
-c2.metric("Columns",     len(meta["columns"]))
-c3.metric("Numeric",     len(num_cols))
-c4.metric("Categorical", len(cat_cols))
-c5.metric("Date/Time",   len(date_cols)) 
+c1.metric("行数",        f"{meta['row_count']:,}")
+c2.metric("列数",     len(meta["columns"]))
+c3.metric("数值列",     len(num_cols))
+c4.metric("分类列", len(cat_cols))
+c5.metric("日期/时间",   len(date_cols))
 
 st.divider()
 
-# ── Smart Summary ──────────────────────────────────────────────────────────────
-st.markdown("### 🧠 Smart Summary")
+# ── 智能摘要 ──────────────────────────────────────────────────────────────
+st.markdown("### 🧠 智能摘要")
 st.markdown(f'<div class="summary-box">{smart_summary_native(con, selected, meta)}</div>', unsafe_allow_html=True)
 
 if len(num_cols) == 0 and not selected.endswith("_cleaned"):
     st.markdown(
-        '<div class="warn-box">⚠️ <b>No numeric columns detected.</b> Enable Deep Clean in the sidebar.</div>',
+        '<div class="warn-box">⚠️ <b>未检测到数值列。</b>请在侧边栏启用深度清洗。</div>',
         unsafe_allow_html=True
     )
 
 st.divider()
 
-st.markdown("### 🔍 Data Preview")
+st.markdown("### 🔍 数据预览")
 st.dataframe(load_preview(con, selected, n=100), use_container_width=True)
 
 st.divider()
 
-# ── Visualization ──────────────────────────────────────────────────────────────
-st.markdown("### 📊 Visualization")
+# ── 可视化 ──────────────────────────────────────────────────────────────
+st.markdown("### 📊 可视化")
 
 _height = st.session_state.get("chart_height", 420)
-_align  = st.session_state.get("chart_align", "Full Width")
+_align  = st.session_state.get("chart_align", "全宽")
 
 def _render_chart(fig):
     if fig is None: return
     fig.update_layout(**PLOT_LAYOUT, height=_height)
-    if _align == "Center":
+    if _align == "居中":
         col_l, col_m, col_r = st.columns([1, 3, 1])
         col_m.plotly_chart(fig, use_container_width=True)
     else:
@@ -915,23 +915,23 @@ def _render_chart(fig):
 
 fig = None
 
-if chart_type == "— Auto Recommend —":
+if chart_type == "— 自动推荐 —":
     recs = get_recommended_charts_native(meta)
     if recs:
-        st.markdown('<div class="chart-rec-badge">✨ Auto Recommended — based on your data structure</div>', unsafe_allow_html=True)
+        st.markdown('<div class="chart-rec-badge">✨ 基于数据结构自动推荐</div>', unsafe_allow_html=True)
         rec = recs[0]
-        st.info(f"Recommendation: {rec['label']}. Please select a chart type manually in the sidebar for full customization.")
+        st.info(f"推荐：{rec['label']}。请在侧边栏手动选择图表类型以进行完整自定义。")
     else:
-        st.info("Not enough columns for auto-recommend. Please select a chart type manually.")
+        st.info("列数不足，无法自动推荐。请手动选择图表类型。")
 
-elif chart_type == "Histogram" and chart_config.get("col"):
+elif chart_type == "直方图" and chart_config.get("col"):
     query = f'SELECT "{chart_config["col"]}" FROM "{selected}" USING SAMPLE 50000'
     df_chart = con.execute(query).df()
     fig = px.histogram(df_chart, x=chart_config["col"], nbins=40,
-                       title=f"Distribution — {chart_config['col']} (Sampled)",
+                       title=f"分布 —— {chart_config['col']}（采样）",
                        template="plotly_dark", color_discrete_sequence=["#3b82f6"])
 
-elif chart_type == "Bar (Average)" and chart_config.get("x") and chart_config.get("y"):
+elif chart_type == "柱状图（平均值）" and chart_config.get("x") and chart_config.get("y"):
     query = f"""
         SELECT "{chart_config['x']}", AVG("{chart_config['y']}") as "{chart_config['y']}"
         FROM "{selected}"
@@ -941,55 +941,55 @@ elif chart_type == "Bar (Average)" and chart_config.get("x") and chart_config.ge
     """
     df_chart = con.execute(query).df()
     fig = px.bar(df_chart, x=chart_config["x"], y=chart_config["y"],
-                 title=f"Avg {chart_config['y']} by {chart_config['x']}",
+                 title=f"按 {chart_config['x']} 平均的 {chart_config['y']}",
                  template="plotly_dark", color_discrete_sequence=["#3b82f6"])
 
-elif chart_type == "Scatter" and chart_config.get("x") and chart_config.get("y"):
+elif chart_type == "散点图" and chart_config.get("x") and chart_config.get("y"):
     col_color = f', "{chart_config["color"]}"' if chart_config.get("color") and chart_config["color"] != "—" else ""
     query = f'SELECT "{chart_config["x"]}", "{chart_config["y"]}" {col_color} FROM "{selected}" USING SAMPLE 10000'
     df_chart = con.execute(query).df()
     fig = px.scatter(df_chart, x=chart_config["x"], y=chart_config["y"],
                      color=None if not chart_config.get("color") or chart_config["color"]=="—" else chart_config["color"],
-                     title=f"{chart_config['x']} vs {chart_config['y']} (Max 10k pts)",
+                     title=f"{chart_config['x']} 与 {chart_config['y']}（最多 1 万点）",
                      template="plotly_dark", opacity=0.7)
 
-elif chart_type == "Line" and chart_config.get("x") and chart_config.get("y"):
+elif chart_type == "折线图" and chart_config.get("x") and chart_config.get("y"):
     col_color = f', "{chart_config["color"]}"' if chart_config.get("color") and chart_config["color"] != "—" else ""
     query = f'SELECT "{chart_config["x"]}", "{chart_config["y"]}" {col_color} FROM "{selected}" ORDER BY "{chart_config["x"]}" LIMIT 10000'
     df_chart = con.execute(query).df()
     fig = px.line(df_chart, x=chart_config["x"], y=chart_config["y"],
                   color=None if not chart_config.get("color") or chart_config["color"]=="—" else chart_config["color"],
-                  title=f"{chart_config['y']} over {chart_config['x']}",
+                  title=f"{chart_config['y']} 随 {chart_config['x']} 变化",
                   template="plotly_dark")
 
 _render_chart(fig)
 
 st.divider()
 
-# ── Descriptive Stats (DuckDB Native Summarize) ────────────────────────────────
-with st.expander("📈 Descriptive Statistics"):
+# ── 描述性统计（DuckDB 原生 SUMMARIZE）───────────────────────────────────
+with st.expander("📈 描述性统计"):
     try:
         stats_df = con.execute(f'SUMMARIZE "{selected}"').df()
         st.dataframe(stats_df, use_container_width=True)
     except:
-        st.info("Descriptive statistics are not available for this dataset.")
+        st.info("该数据集暂不支持描述性统计。")
 
-# ── Custom SQL + Export ────────────────────────────────────────────────────────
-with st.expander("🛠️ Power User — Custom SQL"):
-    sql = st.text_area("Query:", value=f'SELECT * FROM "{selected}" LIMIT 50', height=120)
-    if st.button("▶ Run Query"):
+# ── 自定义 SQL + 导出 ───────────────────────────────────────────────────
+with st.expander("🛠️ 高级用户 —— 自定义 SQL"):
+    sql = st.text_area("查询：", value=f'SELECT * FROM "{selected}" LIMIT 50', height=120)
+    if st.button("▶ 运行查询"):
         try:
             result = con.execute(sql).df()
             st.dataframe(result, use_container_width=True)
-            st.caption(f"{len(result):,} rows returned")
+            st.caption(f"返回 {len(result):,} 行")
 
-            st.markdown("**⬇ Export Query Result:**")
+            st.markdown("**⬇ 导出查询结果：**")
             exp_cols = st.columns(4)
             exp_cols[0].download_button(
                 "CSV", data=result.to_csv(index=False).encode('utf-8'),
                 file_name="query_result.csv", mime="text/csv"
             )
-            
+
             buf = BytesIO()
             with pd.ExcelWriter(buf, engine="openpyxl") as w:
                 result.to_excel(w, index=False)
@@ -998,7 +998,7 @@ with st.expander("🛠️ Power User — Custom SQL"):
                 file_name="query_result.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-            
+
             buf_pq = BytesIO()
             result.to_parquet(buf_pq, index=False)
             exp_cols[2].download_button(
@@ -1006,14 +1006,14 @@ with st.expander("🛠️ Power User — Custom SQL"):
                 file_name="query_result.parquet",
                 mime="application/octet-stream"
             )
-            
+
             exp_cols[3].download_button(
                 "JSON", data=result.to_json(orient="records", indent=2).encode('utf-8'),
                 file_name="query_result.json",
                 mime="application/json"
             )
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"错误：{e}")
 
 st.divider()
-st.caption("🦆 MALLARD · Data Healer Edition · DuckDB + Streamlit · 100% Local & Free")
+st.caption("🦆 MALLARD · 数据修复版 · DuckDB + Streamlit · 100% 本地且免费")
