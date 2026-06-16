@@ -45,6 +45,7 @@ desktop.ini
 # Project documents
 数据自动化处理工具开发项目方案.pdf
 *.pdf
+CLAUDE.md
 
 .claude/
 .omc/
