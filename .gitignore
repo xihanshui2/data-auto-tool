@@ -20,6 +20,7 @@ env/
 
 # Data files (user uploads, tidak perlu di-commit)
 data/
+output/
 
 # PyInstaller
 *.spec

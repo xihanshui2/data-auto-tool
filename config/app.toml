@@ -1,0 +1,3 @@
+[app]
+default_output_dir = "output"
+db_path = "mallard_auto.duckdb"

@@ -1,8 +1,12 @@
 streamlit==1.45.1
 duckdb==1.2.2
 pandas==2.2.3
+pandas-stubs==2.2.3.*
 plotly==6.0.1
 openpyxl==3.1.5
 pyarrow==19.0.1
 xlrd==2.0.1
 psutil==6.1.1
+pydantic>=2.0
+pydantic-settings>=2.0
+tomli-w>=1.0
